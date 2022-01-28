@@ -133,7 +133,7 @@ void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights
     const int   height   = 768;
     const float fov      = M_PI/3.;
     
-    std::vector<unsigned char> pixmap(width*height*3);
+    std::vector<unsigned char> pixmap(width*height*3*2); // *2 pour l'image en double
     std::vector<Vec3f> fb_red(new_width*height);
     std::vector<Vec3f> fb_blue(new_width*height);
 
@@ -178,14 +178,18 @@ void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights
             
             float avg1 = (red_buffer_vector.x  +  red_buffer_vector.y +  red_buffer_vector.z)   / 3. ;
             float avg2 = (blue_buffer_vector.x + blue_buffer_vector.y + blue_buffer_vector.z) / 3. ;
- 
-            pixmap[ (j*width + i)*3      ] = 255*avg1;
-            pixmap[ (j*width + i)*3 + 1] = 0;
-            pixmap[ (j*width + i)*3 + 2] = 255*avg2;
+            
+            pixmap[ (j*width*2 + i)*3      ] = 255*avg1;
+            pixmap[ (j*width*2 + i)*3 + 1] = 0;
+            pixmap[ (j*width*2 + i)*3 + 2] = 255*avg2;
+            
+            pixmap[ (j*width*2 + i + width)*3       ] = 255*avg1;
+            pixmap[ (j*width*2 + i + width)*3 + 1 ] = 0;
+            pixmap[ (j*width*2 + i + width)*3 + 2 ] = 255*avg2;
         }   
     }
 
-    stbi_write_jpg("out.jpg", width, height, 3, pixmap.data(), 100);
+    stbi_write_jpg("out.jpg", width*2, height, 3, pixmap.data(), 100);
 
 }
 
