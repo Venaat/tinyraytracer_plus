@@ -97,7 +97,9 @@ Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &s
     Material material;
 
     if (depth>4 || !scene_intersect(orig, dir, spheres, point, N, material)) {
-        return Vec3f(0.2, 0.7, 0.8); // background color
+        int a = std::max(0, std::min(envmap_width -1, static_cast<int>((atan2(dir.z, dir.x)/(2*M_PI) + .5)*envmap_width)));
+        int b = std::max(0, std::min(envmap_height-1, static_cast<int>(acos(dir.y)/M_PI*envmap_height)));
+        return envmap[a+b*envmap_width]; // background color
     }
 
     Vec3f reflect_dir = reflect(dir, N).normalize();
