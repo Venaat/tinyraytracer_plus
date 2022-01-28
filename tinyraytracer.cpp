@@ -128,30 +128,65 @@ Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &s
 
 void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights) {
     const int   width    = 1024;
+    const int   width_plus = 60; // on met légèrement plus grand pour la 3D, c'est la "distance focale"
+    const int   new_width = width + width_plus ; 
     const int   height   = 768;
     const float fov      = M_PI/3.;
-    std::vector<Vec3f> framebuffer(width*height);
+    
+    std::vector<unsigned char> pixmap(width*height*3);
+    std::vector<Vec3f> fb_red(new_width*height);
+    std::vector<Vec3f> fb_blue(new_width*height);
 
     #pragma omp parallel for
     for (size_t j = 0; j<height; j++) { // actual rendering loop
-        for (size_t i = 0; i<width; i++) {
-            float dir_x =  (i + 0.5) -  width/2.;
+        for (size_t i = 0; i<new_width; i++) { // la boucle s'étend sur toute la nouvelle longueur de l'image
+        
+            float dir_x =  (i + 0.5) -  new_width/2. ;
             float dir_y = -(j + 0.5) + height/2.;    // this flips the image at the same time
             float dir_z = -height/(2.*tan(fov/2.));
-            framebuffer[i+j*width] = cast_ray(Vec3f(0,0,0), Vec3f(dir_x, dir_y, dir_z).normalize(), spheres, lights);
+
+            // Au lieu d'un framebuffer, on en crée deux, l'un pour le rouge et l'un pour le bleu
+            // Ils sont aussi séparés par une distance 0.2 pour faire l'écart entre les 2 yeux 
+            fb_red[i + j*new_width] = cast_ray(     Vec3f{ -0.2/2, 0, 0 }, 
+                                                                        Vec3f{dir_x, dir_y, dir_z}.normalize(),
+                                                                        spheres, lights );
+           fb_blue[i + j*new_width] = cast_ray(     Vec3f{ 0.2/2, 0, 0 }, 
+                                                                        Vec3f{dir_x, dir_y, dir_z}.normalize(),
+                                                                        spheres, lights );
+                                                        
         }
     }
 
-    std::vector<unsigned char> pixmap(width*height*3);
-    for (size_t i = 0; i < height*width; ++i) {
-        Vec3f &c = framebuffer[i];
-        float max = std::max(c[0], std::max(c[1], c[2]));
-        if (max>1) c = c*(1./max);
-        for (size_t j = 0; j<3; j++) {
-            pixmap[i*3+j] = (unsigned char)(255 * std::max(0.f, std::min(1.f, framebuffer[i][j])));
-        }
+    int i = 0;
+    int j = 0;
+    
+    for (j=0 ; j < height ; j++){
+        for (i=0 ; i < width ; i++) {
+            
+            Vec3f red_buffer_vector =   fb_red  [ i + j*new_width + width_plus ];
+            Vec3f blue_buffer_vector =  fb_blue[ i + j*new_width                      ];
+            
+            float max1 =    std::max( red_buffer_vector[0], 
+                                    std::max( red_buffer_vector[1], red_buffer_vector[2]));
+                                    
+            if (max1 > 1)   red_buffer_vector = red_buffer_vector * (1. / max1);
+            
+            float max2 =    std::max( blue_buffer_vector[0], 
+                                    std::max( blue_buffer_vector[1], blue_buffer_vector[2]));
+                                    
+            if (max2 > 1)   blue_buffer_vector = blue_buffer_vector * (1. / max2);
+            
+            float avg1 = (red_buffer_vector.x  +  red_buffer_vector.y +  red_buffer_vector.z)   / 3. ;
+            float avg2 = (blue_buffer_vector.x + blue_buffer_vector.y + blue_buffer_vector.z) / 3. ;
+ 
+            pixmap[ (j*width + i)*3      ] = 255*avg1;
+            pixmap[ (j*width + i)*3 + 1] = 0;
+            pixmap[ (j*width + i)*3 + 2] = 255*avg2;
+        }   
     }
+
     stbi_write_jpg("out.jpg", width, height, 3, pixmap.data(), 100);
+
 }
 
 int main() {
