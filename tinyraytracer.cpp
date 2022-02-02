@@ -68,6 +68,9 @@ Vec3f refract(const Vec3f &I, const Vec3f &N, const float eta_t, const float eta
 
 bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &spheres, Vec3f &hit, Vec3f &N, Material &material) {
     float spheres_dist = std::numeric_limits<float>::max();
+    float checkerboard_dist = std::numeric_limits<float>::max();
+    float duck_dist = std::numeric_limits<float>::max();
+    
     for (size_t i=0; i < spheres.size(); i++) {
         float dist_i;
         if (spheres[i].ray_intersect(orig, dir, dist_i) && dist_i < spheres_dist) {
@@ -77,8 +80,29 @@ bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphe
             material = spheres[i].material;
         }
     }
+    
+        // On affiche chaque face triangulée du petit canard
+        for (int i = 0; i < duck.nfaces() ; i++){
+            float dist_j;
+            
+            // Points 3D a, b,c de la face n°i
+            Vec3f ab, ac, a, b, c;
+            a = duck.point(duck.vert(i, 0));
+            b = duck.point(duck.vert(i, 1));
+            c = duck.point(duck.vert(i, 2));
+            ab = a - b;
+            ac = a - c;
+            
+            if (duck.ray_triangle_intersect(i, orig, dir, dist_j) && dist_j < duck_dist){
+                duck_dist = dist_j;
+                hit = orig + dir*dist_j; // moller and trumbore, P = O + tD
+                N = cross(ab, ac).normalize(); // le pdt vectoriel donne la normale à ab et ac
+                material.diffuse_color = Vec3f(0.9, 0.8, 0.8);
+                material.albedo = Vec4f(0.5, 0, 0, 0.2);
+            }
+        }
 
-    float checkerboard_dist = std::numeric_limits<float>::max();
+    
     if (fabs(dir.y)>1e-3)  {
         float d = -(orig.y+4)/dir.y; // the checkerboard plane has equation y = -4
         Vec3f pt = orig + dir*d;
@@ -89,7 +113,10 @@ bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphe
             material.diffuse_color = (int(.5*hit.x+1000) + int(.5*hit.z)) & 1 ? Vec3f(.3, .3, .3) : Vec3f(.3, .2, .1);
         }
     }
-    return std::min(spheres_dist, checkerboard_dist)<1000;
+    
+    float min = std::min(spheres_dist, checkerboard_dist);
+    min = std::min(min, duck_dist);
+    return min <1000;
 }
 
 Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &spheres, const std::vector<Light> &lights, size_t depth=0) {
@@ -128,68 +155,35 @@ Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &s
 
 void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights) {
     const int   width    = 1024;
-    const int   width_plus = 60; // on met légèrement plus grand pour la 3D, c'est la "distance focale"
-    const int   new_width = width + width_plus ; 
     const int   height   = 768;
     const float fov      = M_PI/3.;
     
-    std::vector<unsigned char> pixmap(width*height*3*2); // *2 pour l'image en double
-    std::vector<Vec3f> fb_red(new_width*height);
-    std::vector<Vec3f> fb_blue(new_width*height);
+    std::vector<unsigned char> pixmap(width*height*3); 
+    std::vector<Vec3f> framebuffer(width*height);
 
     #pragma omp parallel for
     for (size_t j = 0; j<height; j++) { // actual rendering loop
-        for (size_t i = 0; i<new_width; i++) { // la boucle s'étend sur toute la nouvelle longueur de l'image
+        for (size_t i = 0; i<width; i++) { 
         
-            float dir_x =  (i + 0.5) -  new_width/2. ;
+            float dir_x =  (i + 0.5) -  width/2. ;
             float dir_y = -(j + 0.5) + height/2.;    // this flips the image at the same time
             float dir_z = -height/(2.*tan(fov/2.));
 
-            // Au lieu d'un framebuffer, on en crée deux, l'un pour le rouge et l'un pour le bleu
-            // Ils sont aussi séparés par une distance 0.2 pour faire l'écart entre les 2 yeux 
-            fb_red[i + j*new_width] = cast_ray(     Vec3f{ -0.2/2, 0, 0 }, 
-                                                                        Vec3f{dir_x, dir_y, dir_z}.normalize(),
-                                                                        spheres, lights );
-           fb_blue[i + j*new_width] = cast_ray(     Vec3f{ 0.2/2, 0, 0 }, 
-                                                                        Vec3f{dir_x, dir_y, dir_z}.normalize(),
-                                                                        spheres, lights );
+            framebuffer[i + j*width] = cast_ray(Vec3f(0,0,0), Vec3f(dir_x, dir_y, dir_z).normalize(), spheres, lights);
                                                         
         }
     }
 
-    int i = 0;
-    int j = 0;
-    
-    for (j=0 ; j < height ; j++){
-        for (i=0 ; i < width ; i++) {
-            
-            Vec3f red_buffer_vector =   fb_red  [ i + j*new_width + width_plus ];
-            Vec3f blue_buffer_vector =  fb_blue[ i + j*new_width                      ];
-            
-            float max1 =    std::max( red_buffer_vector[0], 
-                                    std::max( red_buffer_vector[1], red_buffer_vector[2]));
-                                    
-            if (max1 > 1)   red_buffer_vector = red_buffer_vector * (1. / max1);
-            
-            float max2 =    std::max( blue_buffer_vector[0], 
-                                    std::max( blue_buffer_vector[1], blue_buffer_vector[2]));
-                                    
-            if (max2 > 1)   blue_buffer_vector = blue_buffer_vector * (1. / max2);
-            
-            float avg1 = (red_buffer_vector.x  +  red_buffer_vector.y +  red_buffer_vector.z)   / 3. ;
-            float avg2 = (blue_buffer_vector.x + blue_buffer_vector.y + blue_buffer_vector.z) / 3. ;
-            
-            pixmap[ (j*width*2 + i)*3      ] = 255*avg1;
-            pixmap[ (j*width*2 + i)*3 + 1] = 0;
-            pixmap[ (j*width*2 + i)*3 + 2] = 255*avg2;
-            
-            pixmap[ (j*width*2 + i + width)*3       ] = 255*avg1;
-            pixmap[ (j*width*2 + i + width)*3 + 1 ] = 0;
-            pixmap[ (j*width*2 + i + width)*3 + 2 ] = 255*avg2;
-        }   
+    for (size_t i = 0; i < height*width; ++i) {
+        Vec3f &c = framebuffer[i];
+        float max = std::max(c[0], std::max(c[1], c[2]));
+        if (max>1) c = c*(1./max);
+        for (size_t j = 0; j<3; j++) {
+            pixmap[i*3+j] = (unsigned char)(255 * std::max(0.f, std::min(1.f, framebuffer[i][j])));
+        }
     }
-
-    stbi_write_jpg("out.jpg", width*2, height, 3, pixmap.data(), 100);
+    
+    stbi_write_jpg("out.jpg", width, height, 3, pixmap.data(), 100);
 
 }
 
