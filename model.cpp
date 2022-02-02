@@ -34,9 +34,7 @@ Model::Model(const char *filename) : verts(), faces() {
         }
     }
     std::cerr << "# v# " << verts.size() << " f# "  << faces.size() << std::endl;
-
-    Vec3f min, max;
-    get_bbox(min, max);
+    
 }
 
 // Moller and Trumbore
@@ -77,6 +75,12 @@ void Model::get_bbox(Vec3f &min, Vec3f &max) {
         }
     }
     std::cerr << "bbox: [" << min << " : " << max << "]" << std::endl;
+}
+
+Vec3f Model::get_bbox_center(Vec3f &bmin, Vec3f &bmax, Vec3f &bcenter){
+    return Vec3f(       (bmin[0] - bmax[0])/2, 
+                                (bmin[1] - bmax[1])/2, 
+                                (bmin[2] - bmax[2])/2 );
 }
 
 const Vec3f &Model::point(int i) const {

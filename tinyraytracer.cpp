@@ -17,6 +17,9 @@
 int envmap_width, envmap_height;
 std::vector<Vec3f> envmap;
 Model duck("../duck.obj");
+Vec3f bcenter;
+Vec3f bmax;
+Vec3f bmin;
 
 struct Light {
     Light(const Vec3f &p, const float i) : position(p), intensity(i) {}
@@ -54,6 +57,34 @@ struct Sphere {
     }
 };
 
+float signed_distance(const Vec3f &orig, const Vec3f &bmin, const Vec3f &bmax, const Vec3f &center){
+    float width_bbox = bmax.x - bmin.x ;
+    
+    bool in_x = orig.x > bmin.x && orig.x < bmax.x;
+    bool in_y = orig.y > bmin.y && orig.y < bmax.y;
+    bool in_z = orig.z > bmin.z && orig.z < bmax.z;
+    
+    if (in_x && in_y && in_z) return -1;
+    
+    return sqrt(  (orig.x - center.x)*(orig.x - center.x) + 
+                        (orig.y - center.y)*(orig.y - center.y) +
+                        (orig.z - center.z)*(orig.z - center.z)) - width_bbox;
+}
+
+// Raymarching pour la bbox
+bool ray_intersect_bbox(const Vec3f &orig, const Vec3f &dir, const Vec3f &bmin, const Vec3f &bmax, const Vec3f &center){
+    Vec3f p = orig;
+    float d;
+    
+    for (size_t i = 0; i < 128 ; i++){
+        d = signed_distance(orig, bmin, bmax, center) ;
+        if (d<0) return true;
+        p = p + dir * std::max(d*0.1, 0.01);
+    }
+    
+    return false;
+}
+
 Vec3f reflect(const Vec3f &I, const Vec3f &N) {
     return I - N*2.f*(I*N);
 }
@@ -70,6 +101,13 @@ bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphe
     float spheres_dist = std::numeric_limits<float>::max();
     float checkerboard_dist = std::numeric_limits<float>::max();
     float duck_dist = std::numeric_limits<float>::max();
+    /**Vec3f bmax;
+    Vec3f bmin;
+    duck.get_bbox(bmin, bmax);
+    Vec3f duck_bbox_center = (bmin-bmax);
+    duck_bbox_center[0] = duck_bbox_center[0] /2;
+    duck_bbox_center[1] = duck_bbox_center[1] /2;
+    duck_bbox_center[2] = duck_bbox_center[2] /2;**/
     
     for (size_t i=0; i < spheres.size(); i++) {
         float dist_i;
@@ -93,13 +131,15 @@ bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphe
             ab = a - b;
             ac = a - c;
             
-            if (duck.ray_triangle_intersect(i, orig, dir, dist_j) && dist_j < duck_dist){
+            if (ray_intersect_bbox(orig, dir, bmin, bmax, bcenter)){
+                if (duck.ray_triangle_intersect(i, orig, dir, dist_j) && dist_j < duck_dist){
                 duck_dist = dist_j;
                 hit = orig + dir*dist_j; // moller and trumbore, P = O + tD
                 N = cross(ab, ac).normalize(); // le pdt vectoriel donne la normale à ab et ac
                 material.diffuse_color = Vec3f(0.9, 0.8, 0.8);
                 material.albedo = Vec4f(0.5, 0, 0, 0.2);
-            }
+              }
+            }         
         }
 
     
@@ -212,11 +252,15 @@ int main() {
     spheres.push_back(Sphere(Vec3f(-1.0, -1.5, -12), 2,      glass));
     spheres.push_back(Sphere(Vec3f( 1.5, -0.5, -18), 3, red_rubber));
     spheres.push_back(Sphere(Vec3f( 7,    5,   -18), 4,     mirror));
+    
 
     std::vector<Light>  lights;
     lights.push_back(Light(Vec3f(-20, 20,  20), 1.5));
     lights.push_back(Light(Vec3f( 30, 50, -25), 1.8));
     lights.push_back(Light(Vec3f( 30, 20,  30), 1.7));
+    
+    duck.get_bbox(bmin, bmax);
+    duck.get_bbox_center(bmin, bmax, bcenter);
 
     render(spheres, lights);
 
