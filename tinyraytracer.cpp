@@ -16,9 +16,8 @@
 
 int envmap_width, envmap_height;
 std::vector<Vec3f> envmap;
-Model duck("../duck.obj");
-Vec3f bmax; // point max de la bbox
-Vec3f bmin; // point min de la bbox
+
+
 
 struct Light {
     Light(const Vec3f &p, const float i) : position(p), intensity(i) {}
@@ -39,7 +38,7 @@ struct Sphere {
     Vec3f center;
     float radius;
     Material material;
-
+    
     Sphere(const Vec3f &c, const float r, const Material &m) : center(c), radius(r), material(m) {}
 
     bool ray_intersect(const Vec3f &orig, const Vec3f &dir, float &t0) const {
@@ -53,6 +52,57 @@ struct Sphere {
         if (t0 < 0) t0 = t1;
         if (t0 < 0) return false;
         return true;
+    }
+};
+
+struct DeathSphere : Sphere {
+    float radius_small;
+    float distance ;
+    
+    DeathSphere(const Vec3f &c, const float r, const float rs, const float d, const Material &m) : Sphere(c, r, m), radius_small(rs), distance(d) {}
+    
+    float signed_distance(const Vec3f &p) const {
+        /*
+        float tmp;
+        
+        float a = (radius*radius - radius_small*radius_small+ distance*distance)/(2.0*distance);
+        tmp = radius*radius - a*a;
+        
+        if (tmp < 0.0) tmp = 0.0; 
+        float b = sqrt(tmp);
+	
+	    tmp = b-p.y;
+	    if (tmp < 0.0) tmp = 0.0;
+	    
+        if( p.x*b-p.y*a > distance * tmp )
+            return sqrt( (p.x - a)*(p.x -a) + (p.y - b)*(p.y - b) );
+        else {
+            float m1 = sqrt((p.x * p.x) + (p.y*p.y)) - radius ;
+            float m2 = -sqrt( ( p.x - distance )*(p.x - distance) + p.y*p.y) - radius_small;
+            
+            return std::max(m1, m2);   
+            
+        }*/
+        /*
+        Vec3f s = Vec3f(p).normalize(radius);
+        float displacement = sin(16*s.x)*sin(16*s.y)*sin(16*s.z)*0.2;
+        return p.norm() - (radius + displacement);*/
+        
+        return p.norm() - radius;
+    }
+    
+    // Ray-marching ici
+    bool ray_intersect(const Vec3f &orig, const Vec3f &dir, Vec3f &pos) const {
+            pos = orig;
+            float d;
+            
+            for (size_t i=0; i<128; i++) {
+                d = signed_distance(pos);
+                if (d < 0.0001) return true;
+                else pos = pos + dir*std::max(d*0.1f, .01f);
+            }
+   // std::cout << "false" << std::endl;
+    return false;
     }
 };
 
@@ -96,10 +146,22 @@ Vec3f refract(const Vec3f &I, const Vec3f &N, const float eta_t, const float eta
     return k<0 ? Vec3f(1,0,0) : I*eta + N*(eta*cosi - sqrtf(k)); // k<0 = total reflection, no ray to refract. I refract it anyways, this has no physical meaning
 }
 
+// --------------------------------------- Init Ajouts ---------------------------------------
+Model duck("../duck.obj");
+Vec3f bmax; // point max de la bbox
+Vec3f bmin; // point min de la bbox
+
+DeathSphere ds = DeathSphere( 
+            Vec3f(4, -0.5, -18), 
+            1.5, 
+            0.1, 0.05,
+            Material(1.0, Vec4f(0.9,  0.1, 0.0, 0.0), Vec3f(0.3, 0.1, 0.1),   10.));
+
 bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &spheres, Vec3f &hit, Vec3f &N, Material &material) {
     float spheres_dist = std::numeric_limits<float>::max();
     float checkerboard_dist = std::numeric_limits<float>::max();
     float duck_dist = std::numeric_limits<float>::max();
+    float ds_dist = std::numeric_limits<float>::max();
     
     for (size_t i=0; i < spheres.size(); i++) {
         float dist_i;
@@ -110,7 +172,20 @@ bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphe
             material = spheres[i].material;
         }
     }
-    
+
+    // Death Star
+    Vec3f hit_ds;
+    if (ds.ray_intersect(orig, dir, hit_ds) ) {
+            ds_dist = (hit_ds-orig).norm();
+            //std::cout << hit_ds << std::endl;
+            if (ds_dist < spheres_dist){ 
+                hit = hit_ds;
+                N = (hit - ds.center).normalize();
+                material = ds.material;
+           }
+    }
+
+    // Canard
         // On affiche chaque face triangulée du petit canard
         for (int i = 0; i < duck.nfaces() ; i++){
             float dist_j;
@@ -124,21 +199,19 @@ bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphe
             ac = a - c;
             
             if (ray_intersect_bbox(orig, dir, bmin, bmax)){
-                if (duck.ray_triangle_intersect(i, orig, dir, dist_j) && dist_j < duck_dist){
-                duck_dist = dist_j;
-                hit = orig + dir*dist_j; 
-                N = cross(ab, ac).normalize(); // le pdt vectoriel donne la normale à ab et ac
-                material.diffuse_color = Vec3f(0.9, 0.8, 0.8);
-                material.albedo = Vec4f(0.5, 0, 0, 0.2);
+                if (duck.ray_triangle_intersect(i, orig, dir, dist_j) && dist_j < duck_dist && dist_j < spheres_dist && dist_j < ds_dist ){
+                    duck_dist = dist_j;
+                    hit = orig + dir*dist_j; 
+                    N = cross(ab, ac).normalize(); // le pdt vectoriel donne la normale à ab et ac
+                    material = Material(1.5, Vec4f(0.0,  0.5, 0.1, 0.8), Vec3f(0.6, 0.7, 0.8),  125.);
               }
             }         
         }
 
-    
     if (fabs(dir.y)>1e-3)  {
         float d = -(orig.y+4)/dir.y; // the checkerboard plane has equation y = -4
         Vec3f pt = orig + dir*d;
-        if (d>0 && fabs(pt.x)<10 && pt.z<-10 && pt.z>-30 && d<spheres_dist) {
+        if (d>0 && fabs(pt.x)<10 && pt.z<-10 && pt.z>-30 && d<spheres_dist && d < duck_dist && d < ds_dist) {
             checkerboard_dist = d;
             hit = pt;
             N = Vec3f(0,1,0);
@@ -148,6 +221,7 @@ bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphe
     
     float min = std::min(spheres_dist, checkerboard_dist);
     min = std::min(min, duck_dist);
+    min = std::min(min, ds_dist);
     return min <1000;
 }
 
@@ -186,8 +260,8 @@ Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &s
 }
 
 void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights) {
-    const int   width    = 1024;
-    const int   height   = 768;
+    const int   width    = 512;
+    const int   height   = 384;
     const float fov      = M_PI/3.;
     
     std::vector<unsigned char> pixmap(width*height*3); 
@@ -201,7 +275,7 @@ void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights
             float dir_y = -(j + 0.5) + height/2.;    // this flips the image at the same time
             float dir_z = -height/(2.*tan(fov/2.));
 
-            framebuffer[i + j*width] = cast_ray(Vec3f(0,0,0), Vec3f(dir_x, dir_y, dir_z).normalize(), spheres, lights);
+            framebuffer[i + j*width] = cast_ray(Vec3f(0,0,3), Vec3f(dir_x, dir_y, dir_z).normalize(), spheres, lights);
                                                         
         }
     }
@@ -236,13 +310,13 @@ int main() {
 
     Material      ivory(1.0, Vec4f(0.6,  0.3, 0.1, 0.0), Vec3f(0.4, 0.4, 0.3),   50.);
     Material      glass(1.5, Vec4f(0.0,  0.5, 0.1, 0.8), Vec3f(0.6, 0.7, 0.8),  125.);
-    Material red_rubber(1.0, Vec4f(0.9,  0.1, 0.0, 0.0), Vec3f(0.3, 0.1, 0.1),   10.);
+    Material      red_rubber(1.0, Vec4f(0.9,  0.1, 0.0, 0.0), Vec3f(0.3, 0.1, 0.1),   10.);
     Material     mirror(1.0, Vec4f(0.0, 10.0, 0.8, 0.0), Vec3f(1.0, 1.0, 1.0), 1425.);
 
     std::vector<Sphere> spheres;
     spheres.push_back(Sphere(Vec3f(-3,    0,   -16), 2,      ivory));
     spheres.push_back(Sphere(Vec3f(-1.0, -1.5, -12), 2,      glass));
-    spheres.push_back(Sphere(Vec3f( 1.5, -0.5, -18), 3, red_rubber));
+    //spheres.push_back(Sphere(Vec3f( 1.5, -0.5, -18), 3, red_rubber));
     spheres.push_back(Sphere(Vec3f( 7,    5,   -18), 4,     mirror));
     
 
