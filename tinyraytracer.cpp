@@ -88,7 +88,7 @@ struct DeathSphere : Sphere {
         float displacement = sin(16*s.x)*sin(16*s.y)*sin(16*s.z)*0.2;
         return p.norm() - (radius + displacement);*/
         
-        return p.norm() - radius;
+        return p.norm() - radius*radius;
     }
     
     // Ray-marching ici
