@@ -42,67 +42,73 @@ struct Sphere {
     Sphere(const Vec3f &c, const float r, const Material &m) : center(c), radius(r), material(m) {}
 
     bool ray_intersect(const Vec3f &orig, const Vec3f &dir, float &t0) const {
+        Vec3f L = center - orig;                     // L = vecteur origine du rayon vers centre du cercle 
+        float tca = L*dir;                                // Projection de L sur le rayon, ce qui donne la longueur de tca
+        float d2 = L*L - tca*tca;                     // On calcule d avec pythagore, qui est la projection du centre du cercle sur le rayon
+                                                                 // pour préparer le calcul de thc et faire la vérification de la ligne suivante 
+                                                                 // on n'utilise pas encore le sqrt parce que pas nécessaire + temps gagné
+                                                                  
+        if (d2 > radius*radius) return false;  // si d est supérieur au rayon du cercle, i.e si d2 est supérieur au rayon du cercle ^2
+                                                                // alors le rayon passe au-dessus de la sphère, donc pas d'intersection
+                                                                
+        float thc = sqrtf(radius*radius - d2); // on calcule thc avec pythagore puisqu'on a d maintenant 
+        t0       = tca - thc;                             // on calcule t0, le premier point d'intersection de la sphère avec le rayon 
+        float t1 = tca + thc;                          // on calcule t1, le deuxième point d'intersection de la sphère avec le rayon
+        if (t0 < 0) t0 = t1;                             // si le premier point d'intersection est derrière l'origine, on l'oublie et on check le 2e
+        if (t0 < 0) return false;                     // si le deuxième aussi est derrière, c'est qu'il n'y a pas d'intersection finalement 
+        return true;                                      // on renvoie vrai et t0 = la distance de la 1ere intersection valide avec la sphère
+    }
+    
+    // On renvoie les deux distances d'intersection au lieu de juste la 1ere ici 
+    bool ray_intersect(const Vec3f &orig, const Vec3f &dir, float &t0, float &t1) const { 
         Vec3f L = center - orig;
         float tca = L*dir;
-        float d2 = L*L - tca*tca;
+        float d2 = L*L - tca*tca ;
+        
         if (d2 > radius*radius) return false;
-        float thc = sqrtf(radius*radius - d2);
-        t0       = tca - thc;
-        float t1 = tca + thc;
-        if (t0 < 0) t0 = t1;
-        if (t0 < 0) return false;
+        
+        float thc = sqrt(radius*radius - d2);
+        t0 = tca - thc ;
+        t1 = tca + thc;
+        
+        if (t0 < 0 && t1 < 0) return false;  // si les deux intersections du rayon sont avant son origine, c'est qu'il n'y a pas d'intersection
         return true;
     }
 };
 
-struct DeathSphere : Sphere {
-    float radius_small;
-    float distance ;
+struct DeathSphere {
+    Sphere sphereA;
+    Sphere sphereB;
     
-    DeathSphere(const Vec3f &c, const float r, const float rs, const float d, const Material &m) : Sphere(c, r, m), radius_small(rs), distance(d) {}
+    DeathSphere(Sphere sa, Sphere sb) :  sphereA(sa), sphereB(sb) {}
     
-    float signed_distance(const Vec3f &p) const {
-        /*
-        float tmp;
+    bool ray_intersect(const Vec3f &orig, const Vec3f &dir, float &t0) const {
+        // Il faut que le rayon intersecte les deux sphères pour qu'il y ait un calcul supplémentaire à faire 
+        float t0a, t1a, t0b, t1b;
         
-        float a = (radius*radius - radius_small*radius_small+ distance*distance)/(2.0*distance);
-        tmp = radius*radius - a*a;
+        // Si on n'intersecte même pas la sphère A, ça ne sert à rien de continuer 
+        if (! sphereA.ray_intersect(orig, dir, t0a, t1a)) return false;
         
-        if (tmp < 0.0) tmp = 0.0; 
-        float b = sqrt(tmp);
-	
-	    tmp = b-p.y;
-	    if (tmp < 0.0) tmp = 0.0;
-	    
-        if( p.x*b-p.y*a > distance * tmp )
-            return sqrt( (p.x - a)*(p.x -a) + (p.y - b)*(p.y - b) );
-        else {
-            float m1 = sqrt((p.x * p.x) + (p.y*p.y)) - radius ;
-            float m2 = -sqrt( ( p.x - distance )*(p.x - distance) + p.y*p.y) - radius_small;
-            
-            return std::max(m1, m2);   
-            
-        }*/
-        /*
-        Vec3f s = Vec3f(p).normalize(radius);
-        float displacement = sin(16*s.x)*sin(16*s.y)*sin(16*s.z)*0.2;
-        return p.norm() - (radius + displacement);*/
+        // S'il y a intersection mais que le 1er point est derrière l'origine, on prend le 2e
+        if (t0a < 0) t0a = t1a;
         
-        return p.norm() - radius*radius;
-    }
-    
-    // Ray-marching ici
-    bool ray_intersect(const Vec3f &orig, const Vec3f &dir, Vec3f &pos) const {
-            pos = orig;
-            float d;
+        // Si on intersecte les deux sphères, on doit trouver le tb qui est entre t0a et t1a
+        if (sphereB.ray_intersect(orig, dir, t0b, t1b)){
+             // Cas 1 et 2
+            (t0b > t0a) ? t0 = t0b : t0 = t1b;
             
-            for (size_t i=0; i<128; i++) {
-                d = signed_distance(pos);
-                if (d < 0.0001) return true;
-                else pos = pos + dir*std::max(d*0.1f, .01f);
+            // Voir Cas 3 Schéma, "faux" passage entre les 2 sphères
+            if (t0 > t0a && t0 > t1a) {
+                t0 = t0a ;
+                return true;
             }
-   // std::cout << "false" << std::endl;
-    return false;
+            
+            return true;
+
+        }else { // si on n'intersecte pas la sphère B, on ne traite que la sphère A donc retour à une sphère normale**/
+            t0 = t0a ;
+            return true;
+        }
     }
 };
 
@@ -151,11 +157,13 @@ Model duck("../duck.obj");
 Vec3f bmax; // point max de la bbox
 Vec3f bmin; // point min de la bbox
 
-DeathSphere ds = DeathSphere( 
-            Vec3f(4, -0.5, -18), 
-            1.5, 
-            0.1, 0.05,
-            Material(1.0, Vec4f(0.9,  0.1, 0.0, 0.0), Vec3f(0.3, 0.1, 0.1),   10.));
+float distance = 2.5;
+Vec3f centre_ds = Vec3f(1.5, -0.5, -18);
+
+Sphere grandeSphere = Sphere( centre_ds, 3.5, Material(1.0, Vec4f(0.9,  0.1, 0.0, 0.0), Vec3f(0.1, 0.1, 0.1),   10.));
+Sphere petiteSphere = Sphere( Vec3f( centre_ds.x + distance, centre_ds.y + distance, centre_ds.z + distance + distance /2), 2.0, Material(1.0, Vec4f(0.6,  0.3, 0.1, 0.0), Vec3f(0.4, 0.4, 0.3),   50.) );
+
+DeathSphere ds = DeathSphere( grandeSphere, petiteSphere);
 
 bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &spheres, Vec3f &hit, Vec3f &N, Material &material) {
     float spheres_dist = std::numeric_limits<float>::max();
@@ -174,17 +182,15 @@ bool scene_intersect(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphe
     }
 
     // Death Star
-    Vec3f hit_ds;
-    if (ds.ray_intersect(orig, dir, hit_ds) ) {
-            ds_dist = (hit_ds-orig).norm();
-            //std::cout << hit_ds << std::endl;
-            if (ds_dist < spheres_dist){ 
-                hit = hit_ds;
-                N = (hit - ds.center).normalize();
-                material = ds.material;
-           }
+    float dist_k;
+    if (ds.ray_intersect(orig, dir, dist_k) && dist_k < spheres_dist) {
+           ds_dist = dist_k;
+           hit = orig + dir*ds_dist;
+           N = (hit - ds.sphereA.center).normalize();
+           material = ds.sphereA.material;
     }
-
+    
+    
     // Canard
         // On affiche chaque face triangulée du petit canard
         for (int i = 0; i < duck.nfaces() ; i++){
@@ -260,8 +266,8 @@ Vec3f cast_ray(const Vec3f &orig, const Vec3f &dir, const std::vector<Sphere> &s
 }
 
 void render(const std::vector<Sphere> &spheres, const std::vector<Light> &lights) {
-    const int   width    = 512;
-    const int   height   = 384;
+    const int   width    = 1024;
+    const int   height   = 768;
     const float fov      = M_PI/3.;
     
     std::vector<unsigned char> pixmap(width*height*3); 
