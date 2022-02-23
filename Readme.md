@@ -8,3 +8,7 @@ cd build
 cmake ..  
 make
 ```
+
+## Contenu supplémentaire 
+Le dossier "imgs_supp" contient les images résultats (out.jpg) de toutes les versions taggées et une explication pour l'affichage de la death star.
+
